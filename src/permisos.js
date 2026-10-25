@@ -1,0 +1,20 @@
+// Nombres exactos de dbo.Permiso (sql/16_datos_iniciales.sql, matriz de acceso de la sección 7).
+module.exports = Object.freeze({
+  CONSULTAR_ABONADOS:     'Consultar abonados y conexiones',
+  GESTIONAR_ABONADOS:     'Gestionar abonados y conexiones',
+  CONSULTAR_FACTURAS:     'Consultar lecturas y facturas',
+  GESTIONAR_FACTURACION:  'Gestionar facturación',
+  REGISTRAR_LECTURA:      'Registrar lectura',
+  CONSULTAR_PAGOS:        'Consultar pagos y morosidad',
+  GESTIONAR_PAGOS:        'Gestionar pagos y morosidad',
+  CONSULTAR_MANTENIMIENTO:'Consultar mantenimientos e incidencias',
+  GESTIONAR_MANTENIMIENTO:'Gestionar mantenimientos e incidencias',
+  REGISTRAR_INCIDENCIA:   'Registrar incidencia',
+  EJECUTAR_MANTENIMIENTO: 'Ejecutar mantenimiento',
+  CONSULTAR_BITACORA:     'Consultar bitácora',
+  GESTIONAR_SEGURIDAD:    'Gestionar usuarios, roles y permisos',
+  CONSULTAR_DW:           'Consultar reportes y Data Warehouse',
+  RESPALDOS:              'Ejecutar respaldos y restauraciones',
+  ETL:                    'Ejecutar ETL',
+  MANTENIMIENTO_BD:       'Mantenimiento de BD',
+});
