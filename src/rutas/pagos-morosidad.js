@@ -33,6 +33,12 @@ router.post('/pagos/:id/anular', ruta(GESTIONAR, (req, ctx) =>
 router.patch('/facturas/:id/prorroga', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_OtorgarProrroga', { id_factura: id(req.params.id), ...tomar(req.body, ['nueva_fecha_vencimiento', 'motivo']) })));
 
+// GET /estado-cuenta?tipo_abonado=&id_abonado=&fecha_corte=  CU-4.6
+// Devuelve resumen, facturas, pagos y recargos del abonado.
+router.get('/estado-cuenta', ruta(CONSULTAR, (req, ctx) =>
+  ctx.sp('sp_EstadoCuentaAbonado',
+    tomar(req.query, ['tipo_abonado', 'id_abonado', 'fecha_corte']))));
+
 /* ------------------------------ Mora ------------------------------ */
 
 // GET /mora/morosos  CU-4.7
@@ -57,5 +63,46 @@ router.post('/mora/recargos/aplicar', ruta(GESTIONAR, (req, ctx) =>
 // POST /mora/recargos/:id/anular  { motivo }
 router.post('/mora/recargos/:id/anular', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_AnularRecargoMora', { id_recargo: id(req.params.id), ...tomar(req.body, ['motivo']) })));
+
+// GET /mora/resumen  Indicadores de cartera para el tablero del módulo.
+router.get('/mora/resumen', ruta(CONSULTAR, (_req, ctx) => ctx.vista('vw_ResumenCartera')));
+
+// POST /mora/suspender  { dias_minimos?, saldo_minimo?, solo_simular? }
+// Suspende las conexiones morosas según los límites configurados.
+router.post('/mora/suspender', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_SuspenderConexionesMorosas',
+    tomar(req.body, ['dias_minimos', 'saldo_minimo', 'solo_simular']),
+    { suspendidas: sql.Int })));
+
+// POST /mora/reactivar  { solo_simular? }
+// Reactiva las conexiones suspendidas que ya no tienen morosidad.
+router.post('/mora/reactivar', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_ReactivarConexionesSinMora', tomar(req.body, ['solo_simular']),
+    { reactivadas: sql.Int })));
+
+/* -------------------------- Configuración -------------------------- */
+
+// GET /mora/parametros
+router.get('/mora/parametros', ruta(CONSULTAR, (_req, ctx) => ctx.vista('vw_ParametrosMora')));
+
+// PUT /mora/parametros/:nombre  { valor }
+router.put('/mora/parametros/:nombre', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_GestionarParametroMora',
+    { nombre: req.params.nombre, ...tomar(req.body, ['valor']) })));
+
+// GET /mora/tramos
+router.get('/mora/tramos', ruta(CONSULTAR, (_req, ctx) => ctx.vista('vw_TramosMora')));
+
+// POST /mora/tramos  { dias_desde, dias_hasta?, porcentaje, activo? }
+router.post('/mora/tramos', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_GestionarTramoMora',
+    tomar(req.body, ['dias_desde', 'dias_hasta', 'porcentaje', 'activo']),
+    { id_tramo_salida: sql.Int }), { estado: 201 }));
+
+// PUT /mora/tramos/:id  { dias_desde, dias_hasta?, porcentaje, activo? }
+router.put('/mora/tramos/:id', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_GestionarTramoMora',
+    { id_tramo: id(req.params.id), ...tomar(req.body, ['dias_desde', 'dias_hasta', 'porcentaje', 'activo']) },
+    { id_tramo_salida: sql.Int })));
 
 module.exports = router;
