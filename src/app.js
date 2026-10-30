@@ -37,8 +37,9 @@ api.use('/catalogos', require('./rutas/catalogos'));
 api.use(require('./rutas/administracion'));
 app.use('/api', api);
 
-// Front web (../frontend): archivos estáticos en la raíz, mismo origen que la API.
-app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
+// Front web: el build de React (../frontend/dist, se genera con "npm run build"),
+// servido en la raíz y en el mismo origen que la API.
+app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'dist')));
 
 app.use(noEncontrado);
 app.use(manejarErrores);

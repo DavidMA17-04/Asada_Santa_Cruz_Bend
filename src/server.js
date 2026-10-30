@@ -1,3 +1,4 @@
+const os = require('os');
 const config = require('./config');
 const app = require('./app');
 const { obtenerPool, cerrarPool } = require('./db/conexion');
@@ -13,6 +14,13 @@ async function iniciar() {
 
   const servidor = app.listen(config.puerto, () => {
     console.log(`API ASADA escuchando en http://localhost:${config.puerto}/api`);
+    // Direcciones para entrar desde otras computadoras (misma red, Tailscale, Hamachi…).
+    for (const [nombre, direcciones] of Object.entries(os.networkInterfaces())) {
+      if (/vmware|virtualbox|vethernet|wsl|docker/i.test(nombre)) continue; // redes virtuales locales
+      for (const d of direcciones) {
+        if (d.family === 'IPv4' && !d.internal) console.log(`  Desde otra compu (${nombre}): http://${d.address}:${config.puerto}/`);
+      }
+    }
   });
 
   const apagar = async () => {
