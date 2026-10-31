@@ -1,7 +1,8 @@
 // CU-1.1 / CU-6.1 Iniciar sesión, CU-6.2 Cerrar sesión.
 const express = require('express');
 const { sql, obtenerPool } = require('../db/conexion');
-const { firmarToken, autenticar } = require('../middleware/autenticacion');
+const { firmarToken, autenticar, revocarToken } = require('../middleware/autenticacion');
+const { verificarIntentos, registrarFallo, reiniciarIntentos } = require('../middleware/limiteIntentos');
 const { ErrorApi, ruta, exigir } = require('../utils/http');
 
 const router = express.Router();
@@ -28,8 +29,9 @@ function formatearPerfil(filasUsuario, filasPermisos) {
   return { ...filasUsuario[0], permisos: filasPermisos.map((p) => p.nombre_permiso), detalle_permisos: filasPermisos };
 }
 
-// POST /api/auth/login  { usuario, contrasena }
-router.post('/login', async (req, res, next) => {
+// POST /api/auth/login  { usuario, contrasena }  CU-6.1
+// Antes de consultar la base se revisa el límite de intentos fallidos por IP.
+router.post('/login', verificarIntentos, async (req, res, next) => {
   try {
     const { usuario, contrasena } = exigir(req.body || {}, ['usuario', 'contrasena']);
     if (typeof usuario !== 'string' || typeof contrasena !== 'string') {
@@ -52,6 +54,7 @@ router.post('/login', async (req, res, next) => {
         END`);
 
     const { resultado } = r.output;
+    if (resultado !== 'OK') registrarFallo(req);
     if (resultado === 'USUARIO_BLOQUEADO') {
       throw new ErrorApi(403, 'El usuario está bloqueado o inactivo. Contacte al administrador.');
     }
@@ -59,6 +62,7 @@ router.post('/login', async (req, res, next) => {
       throw new ErrorApi(401, 'Usuario o contraseña incorrectos.');
     }
 
+    reiniciarIntentos(req);
     const perfil = formatearPerfil(r.recordsets[0], r.recordsets[1]);
     res.json({ ok: true, token: firmarToken(perfil), usuario: perfil });
   } catch (err) {
@@ -75,8 +79,13 @@ router.get('/perfil', ruta([], async (req, ctx) => {
   return { datos: formatearPerfil(r.conjuntos?.[0] ?? r.datos, r.conjuntos?.[1] ?? []) };
 }));
 
-// POST /api/auth/logout  Registra el cierre en la bitácora; el cliente descarta el token.
-router.post('/logout', ruta([], (_req, ctx) => ctx.sp('sp_CerrarSesion')));
+// POST /api/auth/logout  CU-6.2  Registra el cierre en la bitácora e invalida el token,
+// así no sirve aunque alguien lo haya copiado antes de cerrar la sesión.
+router.post('/logout', ruta([], async (req, ctx) => {
+  const r = await ctx.sp('sp_CerrarSesion');
+  revocarToken(req.usuario.jti, req.usuario.expira);
+  return r;
+}));
 
 // PUT /api/auth/contrasena  { actual, nueva }
 router.put('/contrasena', ruta([], (req, ctx) => {
