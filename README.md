@@ -192,6 +192,7 @@ Cualquier usuario con sesión puede leerlos. Para modificarlos hace falta el per
 | GET | `/dw/facturacion?anio` | ″ | facturado vs. recaudado por mes |
 | GET | `/dw/morosidad?fecha_corte=AAAAMMDD` | ″ | saldo vencido por distrito |
 | GET | `/dw/mantenimientos?anio&por=tipo\|empleado` | ″ | cantidad y días promedio de resolución |
+| GET | `/dw/incidencias?anio&por=tipo\|mes\|prioridad&id_tipo_incidencia` | ″ | conteos por estado y días promedio de atención |
 | GET | `/bd/monitoreo` | Mantenimiento de BD | `sp_MonitorearBD` |
 | POST | `/bd/indices`, `/bd/integridad` | Mantenimiento de BD | `sp_MantenimientoIndices`, `sp_VerificarIntegridadBD` |
 | POST | `/pruebas/cargar-datos`, `/pruebas/ejecutar`, `/pruebas/limpiar` | Mantenimiento de BD, solo con `PERMITIR_PRUEBAS=true` | `sp_CargarDatosPrueba`, `sp_EjecutarPruebas`, `sp_LimpiarDatosPrueba` |
