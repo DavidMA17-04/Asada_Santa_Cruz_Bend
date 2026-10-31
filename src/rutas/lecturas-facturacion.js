@@ -13,9 +13,10 @@ const GESTIONAR = [P.GESTIONAR_FACTURACION];
 
 // POST /lecturas  CU-3.1  { id_medidor, lectura_actual, fecha_lectura? }
 // El consumo se calcula en la base; la detección de consumo anómalo corre en el trigger.
+// Si el trigger creó una alerta, sp_RegistrarLectura la reporta en id_alerta.
 router.post('/lecturas', ruta([P.REGISTRAR_LECTURA, P.GESTIONAR_FACTURACION], (req, ctx) =>
   ctx.sp('sp_RegistrarLectura', tomar(req.body, ['id_medidor', 'lectura_actual', 'fecha_lectura']),
-    { id_lectura: sql.Int, consumo: sql.Decimal(10, 2) }), { estado: 201 }));
+    { id_lectura: sql.Int, consumo: sql.Decimal(10, 2), id_alerta: sql.Int }), { estado: 201 }));
 
 // PUT /lecturas/:id  CU-3.4  { lectura_actual_nueva, motivo }
 router.put('/lecturas/:id', ruta(GESTIONAR, (req, ctx) =>
