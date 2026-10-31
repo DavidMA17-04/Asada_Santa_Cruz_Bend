@@ -185,10 +185,22 @@ async function ejecutar() {
   await esperarEstado('Ejecutar ETL', 200, api('POST', '/dw/etl', { token: dba, cuerpo: {} }));
   await esperarEstado('Control del ETL', 200, api('GET', '/dw/etl/control', { token: dba }));
   for (const ruta of ['/dw/consumo?por=mes', '/dw/consumo?por=distrito', '/dw/consumo?por=tarifa', '/dw/facturacion',
-    '/dw/morosidad', '/dw/mantenimientos?por=tipo', '/dw/mantenimientos?por=empleado']) {
+    '/dw/morosidad', '/dw/mantenimientos?por=tipo', '/dw/mantenimientos?por=empleado',
+    '/dw/incidencias?por=tipo', '/dw/incidencias?por=mes', '/dw/incidencias?por=prioridad']) {
     await esperarEstado(`DW ${ruta}`, 200, api('GET', ruta, { token: dba }));
   }
   await esperarEstado('Parámetro inválido en el DW', 400, api('GET', '/dw/consumo?por=color', { token: dba }));
+  await esperarEstado('Parámetro inválido en incidencias DW', 400, api('GET', '/dw/incidencias?por=color', { token: dba }));
+  await esperarEstado('Incidencias DW filtradas por tipo', 200, api('GET', '/dw/incidencias?por=tipo&id_tipo_incidencia=1', { token: dba }));
+  await esperarEstado('Validar carga DW', 200, api('POST', '/dw/validar', { token: dba, cuerpo: {} }));
+  const periodo = `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  await esperarEstado('Conciliar origen DW', 200, api('GET', `/dw/conciliar?periodo=${periodo}`, { token: dba }));
+  const junta = (await login({ usuario: 'junta', contrasena: 'Junta#2026' })).token;
+  await esperarEstado('Junta consulta el DW', 200, api('GET', '/dw/consumo?por=mes', { token: junta }));
+  const bitacoraDw = await esperarEstado('Bitácora de consulta DW', 200,
+    api('GET', '/seguridad/bitacora?accion=CONSULTA&tabla_afectada=FACT_CONSUMO', { token: admin }));
+  verificar('La bitácora registra CONSULTA de FACT_CONSUMO',
+    bitacoraDw.json.datos.some((b) => b.accion === 'CONSULTA' && b.tabla_afectada === 'FACT_CONSUMO'), bitacoraDw);
   await esperarEstado('Monitoreo de la BD', 200, api('GET', '/bd/monitoreo', { token: dba }));
   await esperarEstado('Políticas de respaldo', 200, api('GET', '/respaldos/politicas', { token: dba }));
 
