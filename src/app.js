@@ -9,6 +9,16 @@ const { manejarErrores, noEncontrado } = require('./middleware/errores');
 const app = express();
 
 app.disable('x-powered-by');
+
+// Encabezados básicos de seguridad para la API y el front que se sirve desde aquí.
+app.use((_req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+  });
+  next();
+});
 app.use(cors({ origin: config.corsOrigen === '*' ? true : config.corsOrigen.split(',').map((o) => o.trim()) }));
 app.use(express.json({ limit: '100kb' }));
 
