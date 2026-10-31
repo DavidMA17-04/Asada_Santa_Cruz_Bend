@@ -163,6 +163,17 @@ router.delete('/roles/:id/permisos/:idPermiso', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_QuitarPermisoRol', { id_rol: id(req.params.id), id_permiso: id(req.params.idPermiso, 'id de permiso') },
     {}, { antes: QUITAR_PERMISO })));
 
+// GET /roles/:id/matriz  Todos los permisos por módulo, marcando los que tiene el rol.
+router.get('/roles/:id/matriz', ruta(GESTIONAR, (req, ctx) => ctx.lote(`
+  IF NOT EXISTS (SELECT 1 FROM dbo.Rol WHERE id_rol = @id_rol)
+      THROW 50502, 'El rol indicado no existe.', 1;
+  SELECT p.id_permiso, m.nombre_modulo, p.nombre_permiso,
+         CAST(IIF(rp.id_rol_permiso IS NULL, 0, 1) AS bit) AS asignado
+  FROM dbo.Permiso p
+  JOIN dbo.Modulo m           ON m.id_modulo = p.id_modulo
+  LEFT JOIN dbo.Rol_permiso rp ON rp.id_permiso = p.id_permiso AND rp.id_rol = @id_rol
+  ORDER BY m.nombre_modulo, p.nombre_permiso;`, { id_rol: id(req.params.id) })));
+
 // GET /permisos   POST /permisos { id_modulo, nombre_permiso }   PUT /permisos/:id
 router.get('/permisos', ruta(GESTIONAR, (_req, ctx) => ctx.sp('sp_ConsultarPermisos')));
 router.post('/permisos', ruta(GESTIONAR, (req, ctx) =>
