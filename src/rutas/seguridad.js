@@ -13,6 +13,12 @@ const LISTAR_EMPLEADOS = [P.GESTIONAR_SEGURIDAD, P.GESTIONAR_MANTENIMIENTO];
 
 /* ---------------------------- Empleados --------------------------- */
 
+// Evita que el administrador se quede sin acceso por error: no puede desactivar
+// su propio empleado (sp_CambiarEstadoEmpleado también desactiva su usuario).
+const NO_EMPLEADO_PROPIO = `
+IF @activo = 0 AND @id_empleado = @__emp
+    THROW 50530, 'No puede desactivar su propio empleado: perdería el acceso al sistema.', 1;`;
+
 const CAMPOS_EMPLEADO = ['cedula', 'nombre_empleado', 'apellido1_empleado', 'apellido2_empleado', 'puesto', 'telefono'];
 
 // GET /empleados?cedula=&nombre=&puesto=&activo=
@@ -30,9 +36,15 @@ router.put('/empleados/:id', ruta(GESTIONAR, (req, ctx) =>
 
 // PATCH /empleados/:id/estado  { activo: true|false }
 router.patch('/empleados/:id/estado', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_CambiarEstadoEmpleado', { id_empleado: id(req.params.id), ...tomar(exigir(req.body, ['activo']), ['activo']) })));
+  ctx.sp('sp_CambiarEstadoEmpleado', { id_empleado: id(req.params.id), ...tomar(exigir(req.body, ['activo']), ['activo']) },
+    {}, { antes: NO_EMPLEADO_PROPIO })));
 
 /* ------------------------ Usuarios del sistema -------------------- */
+
+// Sobre la cuenta propia no se cambia el rol ni se desactiva; otro administrador debe hacerlo.
+const NO_CUENTA_PROPIA = (accion) => `
+IF @id_usuario_sistema = @__uid
+    THROW 50530, 'No puede ${accion} su propia cuenta. Pídaselo a otro administrador.', 1;`;
 
 // GET /usuarios  CU-6.4  Nunca devuelve el hash de la contraseña.
 router.get('/usuarios', ruta(GESTIONAR, (_req, ctx) => ctx.lote(`
@@ -53,9 +65,10 @@ router.post('/usuarios', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_CrearUsuarioSistema', tomar(req.body, ['id_empleado', 'id_rol', 'nombre_usuario', 'contrasena']),
     { id_usuario_sistema: sql.Int }), { estado: 201 }));
 
-// PUT /usuarios/:id  { id_rol?, id_empleado? }
+// PUT /usuarios/:id  { id_rol?, id_empleado? }  No se permite sobre la cuenta propia.
 router.put('/usuarios/:id', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_ModificarUsuarioSistema', { id_usuario_sistema: id(req.params.id), ...tomar(req.body, ['id_rol', 'id_empleado']) })));
+  ctx.sp('sp_ModificarUsuarioSistema', { id_usuario_sistema: id(req.params.id), ...tomar(req.body, ['id_rol', 'id_empleado']) },
+    {}, { antes: NO_CUENTA_PROPIA('cambiar el rol o el empleado de') })));
 
 // PUT /usuarios/:id/contrasena  { nueva }  Restablecimiento por el administrador.
 router.put('/usuarios/:id/contrasena', ruta(GESTIONAR, (req, ctx) => {
@@ -65,7 +78,8 @@ router.put('/usuarios/:id/contrasena', ruta(GESTIONAR, (req, ctx) => {
 
 // POST /usuarios/:id/desactivar  y  /usuarios/:id/reactivar (también desbloquea)
 router.post('/usuarios/:id/desactivar', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_DesactivarUsuarioSistema', { id_usuario_sistema: id(req.params.id) })));
+  ctx.sp('sp_DesactivarUsuarioSistema', { id_usuario_sistema: id(req.params.id) },
+    {}, { antes: NO_CUENTA_PROPIA('desactivar') })));
 router.post('/usuarios/:id/reactivar', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_ReactivarUsuarioSistema', { id_usuario_sistema: id(req.params.id) })));
 
