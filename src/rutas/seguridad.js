@@ -1,7 +1,7 @@
 // Módulo de Seguridad y auditoría (R6, RA1, RA5). CU-6.x
 const express = require('express');
 const { sql } = require('../db/contexto');
-const { ruta, tomar, id, exigir } = require('../utils/http');
+const { ErrorApi, ruta, tomar, id, exigir } = require('../utils/http');
 const P = require('../permisos');
 
 const router = express.Router();
@@ -89,36 +89,110 @@ router.get('/usuarios/:id/permisos', ruta(GESTIONAR, (req, ctx) =>
 
 /* ------------------------ Roles y permisos ------------------------ */
 
-// GET /roles   POST /roles { nombre_rol }   PUT /roles/:id { nombre_rol }   DELETE /roles/:id
+// Roles que crea 16_datos_iniciales.sql. La matriz de acceso de la sección 7 los usa por nombre.
+const ROLES_BASE = ['Junta Directiva', 'Administrador del Sistema', 'Fontanero', 'Administrador de BD'];
+const ROL_ADMINISTRADOR = 'Administrador del Sistema';
+// CU-6.6 3a: el rol Administrador no puede quedar sin los permisos de seguridad.
+const PERMISOS_SEGURIDAD = [P.GESTIONAR_SEGURIDAD, P.CONSULTAR_BITACORA];
+// La API reconoce los permisos por su nombre (src/permisos.js); renombrarlos rompe el acceso.
+const PERMISOS_API = Object.values(P);
+
+// Arma una lista N'a', N'b' para un IN (...). Solo se usa con constantes del código.
+const listaSql = (valores) => valores.map((v) => `N'${v.replace(/'/g, "''")}'`).join(', ');
+
+// Limpia un nombre de catálogo y valida su largo antes de llamar a la base.
+// Los parámetros varchar de SQL Server truncan sin avisar, por eso se valida aquí.
+function nombreValido(valor, etiqueta, maximo) {
+  const texto = typeof valor === 'string' ? valor.trim() : '';
+  if (!texto) throw new ErrorApi(400, `El ${etiqueta} es obligatorio.`);
+  if (texto.length > maximo) throw new ErrorApi(400, `El ${etiqueta} admite como máximo ${maximo} caracteres.`);
+  return texto;
+}
+
+// CU-6.5 2a: los roles base no se eliminan ni se renombran.
+const ROL_NO_BASE = (accion) => `
+IF EXISTS (SELECT 1 FROM dbo.Rol WHERE id_rol = @id_rol AND nombre_rol IN (${listaSql(ROLES_BASE)}))
+    THROW 50532, 'Los roles base del sistema no se pueden ${accion}.', 1;`;
+
+const RENOMBRAR_ROL = `
+IF EXISTS (SELECT 1 FROM dbo.Rol WHERE id_rol = @id_rol AND nombre_rol <> @nombre_rol
+           AND nombre_rol IN (${listaSql(ROLES_BASE)}))
+    THROW 50532, 'Los roles base del sistema no se pueden renombrar.', 1;`;
+
+// CU-6.6 3a y protección contra quitarse a sí mismo la gestión de seguridad.
+const QUITAR_PERMISO = `
+IF EXISTS (SELECT 1 FROM dbo.Rol r, dbo.Permiso p
+           WHERE r.id_rol = @id_rol AND p.id_permiso = @id_permiso
+             AND r.nombre_rol = N'${ROL_ADMINISTRADOR}' AND p.nombre_permiso IN (${listaSql(PERMISOS_SEGURIDAD)}))
+    THROW 50533, 'El rol Administrador del Sistema no puede quedar sin los permisos de seguridad.', 1;
+IF EXISTS (SELECT 1 FROM dbo.Usuario_Sistema u, dbo.Permiso p
+           WHERE u.id_usuario_sistema = @__uid AND u.id_rol = @id_rol
+             AND p.id_permiso = @id_permiso AND p.nombre_permiso = N'${P.GESTIONAR_SEGURIDAD}')
+    THROW 50533, 'No puede quitarle a su propio rol el permiso de gestionar la seguridad.', 1;`;
+
+const RENOMBRAR_PERMISO = `
+IF EXISTS (SELECT 1 FROM dbo.Permiso WHERE id_permiso = @id_permiso AND nombre_permiso <> @nombre_permiso
+           AND nombre_permiso IN (${listaSql(PERMISOS_API)}))
+    THROW 50534, 'Este permiso lo usa la API por su nombre; renombrarlo quitaría el acceso a quienes lo tienen.', 1;`;
+
+// CU-6.5 paso 5: Rol, Permiso y Modulo no tienen trigger de auditoría, se registra aquí.
+const registrar = (accion, tabla, descripcion) => `
+DECLARE @__descripcion varchar(max) = ${descripcion};
+EXEC dbo.sp_RegistrarEventoBitacora @accion = '${accion}', @tabla_afectada = '${tabla}', @descripcion = @__descripcion;`;
+
+// GET /roles   POST /roles { nombre_rol }   PUT /roles/:id { nombre_rol }   DELETE /roles/:id  CU-6.5
 router.get('/roles', ruta(GESTIONAR, (_req, ctx) => ctx.sp('sp_ConsultarRoles')));
 router.post('/roles', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_GestionarRol', tomar(req.body, ['nombre_rol']), { id_rol: sql.Int }), { estado: 201 }));
+  ctx.sp('sp_GestionarRol', { nombre_rol: nombreValido(req.body?.nombre_rol, 'nombre del rol', 25) }, { id_rol: sql.Int },
+    { despues: registrar('INSERT', 'Rol', `CONCAT('Alta del rol "', @nombre_rol, '".')`) }), { estado: 201 }));
 router.put('/roles/:id', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_GestionarRol', { ...tomar(req.body, ['nombre_rol']), id_rol: id(req.params.id) }, { id_rol: sql.Int })));
-router.delete('/roles/:id', ruta(GESTIONAR, (req, ctx) => ctx.sp('sp_EliminarRol', { id_rol: id(req.params.id) })));
+  ctx.sp('sp_GestionarRol', { nombre_rol: nombreValido(req.body?.nombre_rol, 'nombre del rol', 25), id_rol: id(req.params.id) },
+    { id_rol: sql.Int }, {
+      antes: RENOMBRAR_ROL,
+      despues: registrar('UPDATE', 'Rol', `CONCAT('Rol ', @id_rol, ' renombrado a "', @nombre_rol, '".')`),
+    })));
+router.delete('/roles/:id', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_EliminarRol', { id_rol: id(req.params.id) }, {}, { antes: ROL_NO_BASE('eliminar') })));
 
-// GET /roles/:id/permisos   POST /roles/:id/permisos { id_permiso }   DELETE /roles/:id/permisos/:idPermiso
+// GET /roles/:id/permisos   POST /roles/:id/permisos { id_permiso }   DELETE /roles/:id/permisos/:idPermiso  CU-6.6
 router.get('/roles/:id/permisos', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_ConsultarPermisosPorRol', { id_rol: id(req.params.id) })));
 router.post('/roles/:id/permisos', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_AsignarPermisoRol', { id_rol: id(req.params.id), ...tomar(req.body, ['id_permiso']) }), { estado: 201 }));
 router.delete('/roles/:id/permisos/:idPermiso', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_QuitarPermisoRol', { id_rol: id(req.params.id), id_permiso: id(req.params.idPermiso, 'id de permiso') })));
+  ctx.sp('sp_QuitarPermisoRol', { id_rol: id(req.params.id), id_permiso: id(req.params.idPermiso, 'id de permiso') },
+    {}, { antes: QUITAR_PERMISO })));
 
 // GET /permisos   POST /permisos { id_modulo, nombre_permiso }   PUT /permisos/:id
 router.get('/permisos', ruta(GESTIONAR, (_req, ctx) => ctx.sp('sp_ConsultarPermisos')));
 router.post('/permisos', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_GestionarPermiso', tomar(req.body, ['id_modulo', 'nombre_permiso']), { id_permiso: sql.Int }), { estado: 201 }));
+  ctx.sp('sp_GestionarPermiso', {
+    ...tomar(exigir(req.body || {}, ['id_modulo']), ['id_modulo']),
+    nombre_permiso: nombreValido(req.body?.nombre_permiso, 'nombre del permiso', 50),
+  }, { id_permiso: sql.Int },
+  { despues: registrar('INSERT', 'Permiso', `CONCAT('Alta del permiso "', @nombre_permiso, '".')`) }), { estado: 201 }));
 router.put('/permisos/:id', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_GestionarPermiso', { ...tomar(req.body, ['id_modulo', 'nombre_permiso']), id_permiso: id(req.params.id) },
-    { id_permiso: sql.Int })));
+  ctx.sp('sp_GestionarPermiso', {
+    ...tomar(exigir(req.body || {}, ['id_modulo']), ['id_modulo']),
+    nombre_permiso: nombreValido(req.body?.nombre_permiso, 'nombre del permiso', 50),
+    id_permiso: id(req.params.id),
+  }, { id_permiso: sql.Int }, {
+    antes: RENOMBRAR_PERMISO,
+    despues: registrar('UPDATE', 'Permiso', `CONCAT('Permiso ', @id_permiso, ': "', @nombre_permiso, '" en el módulo ', @id_modulo, '.')`),
+  })));
 
 // GET /modulos   POST /modulos { nombre_modulo }   PUT /modulos/:id   GET /modulos/:id/permisos
 router.get('/modulos', ruta(GESTIONAR, (_req, ctx) => ctx.sp('sp_ConsultarModulos')));
 router.post('/modulos', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_GestionarModulo', tomar(req.body, ['nombre_modulo']), { id_modulo: sql.Int }), { estado: 201 }));
+  ctx.sp('sp_GestionarModulo', { nombre_modulo: nombreValido(req.body?.nombre_modulo, 'nombre del módulo', 50) },
+    { id_modulo: sql.Int },
+    { despues: registrar('INSERT', 'Modulo', `CONCAT('Alta del módulo "', @nombre_modulo, '".')`) }), { estado: 201 }));
 router.put('/modulos/:id', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_GestionarModulo', { ...tomar(req.body, ['nombre_modulo']), id_modulo: id(req.params.id) }, { id_modulo: sql.Int })));
+  ctx.sp('sp_GestionarModulo', {
+    nombre_modulo: nombreValido(req.body?.nombre_modulo, 'nombre del módulo', 50),
+    id_modulo: id(req.params.id),
+  }, { id_modulo: sql.Int },
+  { despues: registrar('UPDATE', 'Modulo', `CONCAT('Módulo ', @id_modulo, ' renombrado a "', @nombre_modulo, '".')`) })));
 router.get('/modulos/:id/permisos', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_ConsultarPermisosPorModulo', { id_modulo: id(req.params.id) })));
 
