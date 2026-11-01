@@ -91,15 +91,16 @@ class Contexto {
 
   /**
    * Ejecuta dbo.<nombre> pasando cada entrada como @param = @param.
-   * @param {{antes?: string}} opciones  T-SQL extra antes del EXEC (validaciones propias de la API).
+   * @param {{antes?: string, despues?: string}} opciones  T-SQL extra antes del EXEC
+   *        (validaciones propias de la API) y después (por ejemplo, registrar en la bitácora).
    */
-  sp(nombre, entradas = {}, salidas = {}, { antes = '' } = {}) {
+  sp(nombre, entradas = {}, salidas = {}, { antes = '', despues = '' } = {}) {
     validarIdentificador(nombre);
     const argumentos = [
       ...Object.keys(entradas).filter((k) => !(k in salidas)).map((k) => `@${k} = @${k}`),
       ...Object.keys(salidas).map((k) => `@${k} = @${k} OUTPUT`),
     ];
-    return this.lote(`${antes}\nEXEC dbo.${nombre} ${argumentos.join(', ')};`, entradas, salidas);
+    return this.lote(`${antes}\nEXEC dbo.${nombre} ${argumentos.join(', ')};\n${despues}`, entradas, salidas);
   }
 
   /** SELECT * de una vista, con un ORDER BY opcional escrito en el código. */
