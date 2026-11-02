@@ -81,8 +81,26 @@ router.get('/dw/conciliar', ruta([...ETL, ...DW], (req, ctx) => ctx.sp('sp_Conci
 
 /* ------------------- Análisis en el Data Warehouse ---------------- */
 // CU-1.4 / CU-7.11. Consultas de solo lectura sobre ASADA_DW.
+// La bitácora reutiliza dbo.sp_RegistrarEventoBitacora (script 09).
+// El encabezado de Contexto valida permiso antes del SELECT: un 403 no
+// llega al EXEC y no se registra como CONSULTA. Si el INSERT de bitácora
+// falla, el lote aborta y no se responde { ok: true } (mismo criterio
+// que triggers y ETL: el registro no se omite en silencio).
 
 const dw = (tabla) => `${config.db.baseDW}.dbo.${tabla}`;
+
+function loteConsultaDW(ctx, cuerpo, entradas, tabla, descripcion) {
+  return ctx.lote(`${cuerpo}
+EXEC dbo.sp_RegistrarEventoBitacora
+    @accion = @accion_auditoria,
+    @tabla_afectada = @tabla_auditoria,
+    @descripcion = @descripcion_auditoria;`, {
+    ...entradas,
+    accion_auditoria: 'CONSULTA',
+    tabla_auditoria: tabla,
+    descripcion_auditoria: descripcion,
+  });
+}
 
 function enteroOpcional(valor, nombre) {
   if (valor === undefined || valor === '') return null;
@@ -101,7 +119,7 @@ router.get('/dw/consumo', ruta(DW, (req, ctx) => {
   const agrupar = AGRUPAR_CONSUMO[req.query.por || 'mes'];
   if (!agrupar) throw new ErrorApi(400, '"por" debe ser mes, distrito o tarifa.');
   const grupo = agrupar.columnas.replace(/ AS \w+/g, '');
-  return ctx.lote(`
+  return loteConsultaDW(ctx, `
     SELECT ${agrupar.columnas},
            COUNT(*) AS lecturas,
            SUM(f.consumo_m3) AS consumo_total_m3,
@@ -112,11 +130,12 @@ router.get('/dw/consumo', ruta(DW, (req, ctx) => {
     JOIN ${dw('DIM_TARIFA')}   ta ON ta.id_tarifa_dw = f.id_tarifa_dw
     WHERE @anio IS NULL OR t.anio = @anio
     GROUP BY ${grupo}
-    ORDER BY ${agrupar.orden};`, { anio: enteroOpcional(req.query.anio, 'anio') });
+    ORDER BY ${agrupar.orden};`, { anio: enteroOpcional(req.query.anio, 'anio') },
+    'FACT_CONSUMO', 'Consulta del reporte de consumo del Data Warehouse.');
 }));
 
 // GET /dw/facturacion?anio=  Facturado contra recaudado por mes.
-router.get('/dw/facturacion', ruta(DW, (req, ctx) => ctx.lote(`
+router.get('/dw/facturacion', ruta(DW, (req, ctx) => loteConsultaDW(ctx, `
   WITH facturado AS (
     SELECT t.anio, t.mes, COUNT(*) AS facturas, SUM(f.monto_total) AS monto_facturado
     FROM ${dw('FACT_FACTURACION')} f JOIN ${dw('DIM_TIEMPO')} t ON t.id_tiempo = f.id_tiempo
@@ -134,10 +153,11 @@ router.get('/dw/facturacion', ruta(DW, (req, ctx) => ctx.lote(`
          ISNULL(r.recargos_cobrados, 0) AS recargos_cobrados
   FROM facturado f
   FULL JOIN recaudado r ON r.anio = f.anio AND r.mes = f.mes
-  ORDER BY 1, 2;`, { anio: enteroOpcional(req.query.anio, 'anio') })));
+  ORDER BY 1, 2;`, { anio: enteroOpcional(req.query.anio, 'anio') },
+  'FACT_FACTURACION', 'Consulta del reporte de facturación del Data Warehouse.')));
 
 // GET /dw/morosidad?fecha_corte=AAAAMMDD  Por distrito; sin fecha usa el último corte cargado.
-router.get('/dw/morosidad', ruta(DW, (req, ctx) => ctx.lote(`
+router.get('/dw/morosidad', ruta(DW, (req, ctx) => loteConsultaDW(ctx, `
   DECLARE @corte int = COALESCE(@fecha_corte, (SELECT MAX(id_tiempo) FROM ${dw('FACT_MOROSIDAD')}));
   SELECT @corte AS fecha_corte, ISNULL(c.distrito, 'Sin distrito') AS distrito,
          COUNT(DISTINCT m.id_abonado_dw) AS abonados_morosos,
@@ -147,7 +167,8 @@ router.get('/dw/morosidad', ruta(DW, (req, ctx) => ctx.lote(`
   JOIN ${dw('DIM_CONEXION')} c ON c.id_conexion_dw = m.id_conexion_dw
   WHERE m.id_tiempo = @corte
   GROUP BY c.distrito
-  ORDER BY saldo_vencido DESC;`, { fecha_corte: enteroOpcional(req.query.fecha_corte, 'fecha_corte') })));
+  ORDER BY saldo_vencido DESC;`, { fecha_corte: enteroOpcional(req.query.fecha_corte, 'fecha_corte') },
+  'FACT_MOROSIDAD', 'Consulta del reporte de morosidad del Data Warehouse.')));
 
 // GET /dw/mantenimientos?anio=&por=tipo|empleado
 router.get('/dw/mantenimientos', ruta(DW, (req, ctx) => {
@@ -158,7 +179,7 @@ router.get('/dw/mantenimientos', ruta(DW, (req, ctx) => {
   };
   const g = grupos[por];
   if (!g) throw new ErrorApi(400, '"por" debe ser tipo o empleado.');
-  return ctx.lote(`
+  return loteConsultaDW(ctx, `
     SELECT ${g.col} AS ${por === 'tipo' ? 'tipo_trabajo' : 'empleado'},
            COUNT(*) AS mantenimientos,
            CAST(AVG(CAST(f.dias_resolucion AS decimal(10,2))) AS decimal(10,2)) AS dias_promedio_resolucion,
@@ -168,7 +189,38 @@ router.get('/dw/mantenimientos', ruta(DW, (req, ctx) => {
     ${g.dim}
     WHERE @anio IS NULL OR t.anio = @anio
     GROUP BY ${g.col}
-    ORDER BY mantenimientos DESC;`, { anio: enteroOpcional(req.query.anio, 'anio') });
+    ORDER BY mantenimientos DESC;`, { anio: enteroOpcional(req.query.anio, 'anio') },
+    'FACT_MANTENIMIENTO', 'Consulta del reporte de mantenimientos del Data Warehouse.');
+}));
+
+// GET /dw/incidencias?anio=&por=tipo|mes|prioridad&id_tipo_incidencia=
+const AGRUPAR_INCIDENCIAS = {
+  tipo:      { columnas: 'ti.nombre_incidencia AS tipo_incidencia', orden: 'incidencias DESC' },
+  mes:       { columnas: 't.anio, t.mes, t.nombre_mes', orden: 't.anio, t.mes' },
+  prioridad: { columnas: "ISNULL(f.prioridad, 'Sin prioridad') AS prioridad", orden: 'incidencias DESC' },
+};
+
+router.get('/dw/incidencias', ruta(DW, (req, ctx) => {
+  const agrupar = AGRUPAR_INCIDENCIAS[req.query.por || 'tipo'];
+  if (!agrupar) throw new ErrorApi(400, '"por" debe ser tipo, mes o prioridad.');
+  const grupo = agrupar.columnas.replace(/ AS \w+/g, '');
+  return loteConsultaDW(ctx, `
+    SELECT ${agrupar.columnas},
+           COUNT(*) AS incidencias,
+           SUM(CASE WHEN f.estado = 'Abierta' THEN 1 ELSE 0 END) AS abiertas,
+           SUM(CASE WHEN f.estado = 'En proceso' THEN 1 ELSE 0 END) AS en_proceso,
+           SUM(CASE WHEN f.estado = 'Resuelta' THEN 1 ELSE 0 END) AS resueltas,
+           CAST(AVG(CAST(f.dias_atencion AS decimal(10,2))) AS decimal(10,2)) AS dias_promedio_atencion
+    FROM ${dw('FACT_INCIDENCIA')} f
+    JOIN ${dw('DIM_TIEMPO')} t ON t.id_tiempo = f.id_tiempo
+    JOIN ${dw('DIM_TIPO_INCIDENCIA')} ti ON ti.id_tipo_incidencia_dw = f.id_tipo_incidencia_dw
+    WHERE (@anio IS NULL OR t.anio = @anio)
+      AND (@id_tipo_incidencia IS NULL OR ti.id_tipo_incidencia_origen = @id_tipo_incidencia)
+    GROUP BY ${grupo}
+    ORDER BY ${agrupar.orden};`, {
+    anio: enteroOpcional(req.query.anio, 'anio'),
+    id_tipo_incidencia: enteroOpcional(req.query.id_tipo_incidencia, 'id_tipo_incidencia'),
+  }, 'FACT_INCIDENCIA', 'Consulta del reporte de incidencias del Data Warehouse.');
 }));
 
 /* ----------------------- Administración de BD --------------------- */

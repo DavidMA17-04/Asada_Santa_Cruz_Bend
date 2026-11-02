@@ -44,9 +44,18 @@ router.patch('/incidencias/:id/estado', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_CambiarEstadoIncidencia',
     { id_incidencia: id(req.params.id), ...tomar(req.body, ['nuevo_estado', 'observacion']) })));
 
+// PATCH /incidencias/:id/prioridad  { nueva_prioridad?: Alta|Media|Baja, observacion }
+router.patch('/incidencias/:id/prioridad', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_EscalarPrioridadIncidencia',
+    { id_incidencia: id(req.params.id), ...tomar(req.body, ['nueva_prioridad', 'observacion']) })));
+
 // POST /incidencias/:id/cerrar  { solucion }
 router.post('/incidencias/:id/cerrar', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_CerrarIncidente', { id_incidencia: id(req.params.id), ...tomar(req.body, ['solucion']) })));
+
+// POST /incidencias/:id/reabrir  { motivo }
+router.post('/incidencias/:id/reabrir', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_ReabrirIncidencia', { id_incidencia: id(req.params.id), ...tomar(req.body, ['motivo']) })));
 
 // GET /incidencias/:id/historial  CU-5.9
 router.get('/incidencias/:id/historial', ruta(CONSULTAR, (req, ctx) =>
@@ -57,6 +66,12 @@ router.post('/incidencias/:id/mantenimiento', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_AsignarMantenimiento',
     { id_incidencia: id(req.params.id), ...tomar(req.body, ['id_empleado', 'id_tipo_trabajo', 'descripcion', 'fecha_inicio']) },
     { id_mantenimiento: sql.Int }), { estado: 201 }));
+
+// POST /incidencias/:id/mantenimiento-automatico  { id_tipo_trabajo, descripcion?, fecha_inicio? }
+router.post('/incidencias/:id/mantenimiento-automatico', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_AsignarMantenimientoAutomatico',
+    { id_incidencia: id(req.params.id), ...tomar(req.body, ['id_tipo_trabajo', 'descripcion', 'fecha_inicio']) },
+    { id_empleado_asignado: sql.Int, id_mantenimiento: sql.Int }), { estado: 201 }));
 
 /* ------------------------- Mantenimientos ------------------------- */
 
@@ -71,11 +86,21 @@ router.get('/mantenimientos/pendientes', ruta(CONSULTAR, (_req, ctx) => ctx.vist
 router.get('/mantenimientos/mios', ruta(CONSULTAR, (req, ctx) =>
   ctx.sp('sp_ConsultarMantenimientos', { id_empleado: req.usuario.id_empleado, ...tomar(req.query, ['estado']) })));
 
+// GET /mantenimientos/resumen-operativo?desde=&hasta=
+router.get('/mantenimientos/resumen-operativo', ruta(CONSULTAR, (req, ctx) =>
+  ctx.sp('sp_ResumenOperativoMantenimientos', tomar(req.query, ['desde', 'hasta']))));
+
 // POST /mantenimientos  CU-5.5  { id_empleado, id_tipo_trabajo, id_conexion, descripcion?, id_incidencia?, fecha_inicio? }
 router.post('/mantenimientos', ruta(GESTIONAR, (req, ctx) =>
   ctx.sp('sp_ProgramarMantenimiento',
     tomar(req.body, ['id_empleado', 'id_tipo_trabajo', 'id_conexion', 'descripcion', 'id_incidencia', 'fecha_inicio']),
     { id_mantenimiento: sql.Int }), { estado: 201 }));
+
+// POST /mantenimientos/preventivo-masivo  { id_tipo_trabajo, id_empleado?, dias_sin_mantenimiento?, descripcion?, fecha_inicio? }
+router.post('/mantenimientos/preventivo-masivo', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_ProgramarMantenimientoPreventivoMasivo',
+    tomar(req.body, ['id_tipo_trabajo', 'id_empleado', 'dias_sin_mantenimiento', 'descripcion', 'fecha_inicio']),
+    { cantidad_programados: sql.Int }), { estado: 201 }));
 
 // POST /mantenimientos/realizados  Registra un trabajo que ya se hizo (queda finalizado).
 // { id_conexion, id_tipo_trabajo, descripcion, fecha_inicio, fecha_fin?, id_incidencia?, id_empleado? }
@@ -90,6 +115,11 @@ router.patch('/mantenimientos/:id/estado', ruta(EJECUTAR, (req, ctx) =>
   ctx.sp('sp_CambiarEstadoMantenimiento',
     { id_mantenimiento: id(req.params.id), ...tomar(req.body, ['nuevo_estado', 'anotacion']) },
     {}, { antes: SOLO_ASIGNADOS })));
+
+// PATCH /mantenimientos/:id/reasignar  { id_nuevo_empleado, motivo }
+router.patch('/mantenimientos/:id/reasignar', ruta(GESTIONAR, (req, ctx) =>
+  ctx.sp('sp_ReasignarMantenimiento',
+    { id_mantenimiento: id(req.params.id), ...tomar(req.body, ['id_nuevo_empleado', 'motivo']) })));
 
 // POST /mantenimientos/:id/cerrar  { detalle, fecha_fin?, cerrar_incidencia? }
 router.post('/mantenimientos/:id/cerrar', ruta(EJECUTAR, (req, ctx) =>

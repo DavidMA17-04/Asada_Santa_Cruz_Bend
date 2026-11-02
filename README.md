@@ -49,6 +49,16 @@ npm run prueba
 
 Recorre la API con los tres roles: admin, fontanero y DBA. Verifica permisos, reglas de negocio, que la bitácora y los historiales queden a nombre del usuario correcto, el ETL y las consultas del DW. Con `PERMITIR_PRUEBAS=true`, al final borra lo que creó con `sp_LimpiarDatosPrueba`. El usuario `fontanero.prueba` queda desactivado.
 
+### Pruebas del módulo de Seguridad
+
+```bash
+node pruebas/seguridad.js   # sesión, token, logout, bitácora y límite de intentos (CU-6.1, 6.2, 6.7, 6.8)
+node pruebas/usuarios.js    # empleados y usuarios del sistema (CU-6.3, 6.4)
+node pruebas/roles.js       # roles, permisos y módulos (CU-6.5, 6.6)
+```
+
+Cada una se puede ejecutar varias veces sobre la misma base; los usuarios de prueba quedan desactivados al terminar.
+
 ## Uso
 
 1. `POST /api/auth/login` con `{ "usuario": "admin", "contrasena": "Asada#2026" }`. Devuelve `token` y los datos del usuario con sus `permisos`; el front puede usarlos para mostrar u ocultar menús.
@@ -71,6 +81,7 @@ Recorre la API con los tres roles: admin, fontanero y DBA. Verifica permisos, re
 | 400 | Regla de negocio (`THROW 5xxxx` de un procedimiento), dato faltante o con formato inválido |
 | 401 | Sin sesión, token vencido o usuario desactivado |
 | 403 | El rol no tiene el permiso |
+| 429 | Demasiados inicios de sesión fallidos desde la misma IP (`LOGIN_MAX_FALLOS` en `LOGIN_VENTANA_MIN` minutos) |
 | 409 | Duplicado o conflicto de integridad |
 
 **Nombres de los campos.** Son los parámetros del procedimiento sin la `@`. Por ejemplo, `sp_RegistrarPago @id_factura, @id_metodo_pago, @monto` se llama con `{ "id_factura": 1, "id_metodo_pago": 1, "monto": 5000 }`. Un campo vacío u omitido toma el valor por defecto del procedimiento. Las fechas van como `AAAA-MM-DD`.
@@ -192,6 +203,7 @@ Cualquier usuario con sesión puede leerlos. Para modificarlos hace falta el per
 | GET | `/dw/facturacion?anio` | ″ | facturado vs. recaudado por mes |
 | GET | `/dw/morosidad?fecha_corte=AAAAMMDD` | ″ | saldo vencido por distrito |
 | GET | `/dw/mantenimientos?anio&por=tipo\|empleado` | ″ | cantidad y días promedio de resolución |
+| GET | `/dw/incidencias?anio&por=tipo\|mes\|prioridad&id_tipo_incidencia` | ″ | conteos por estado y días promedio de atención |
 | GET | `/bd/monitoreo` | Mantenimiento de BD | `sp_MonitorearBD` |
 | POST | `/bd/indices`, `/bd/integridad` | Mantenimiento de BD | `sp_MantenimientoIndices`, `sp_VerificarIntegridadBD` |
 | POST | `/pruebas/cargar-datos`, `/pruebas/ejecutar`, `/pruebas/limpiar` | Mantenimiento de BD, solo con `PERMITIR_PRUEBAS=true` | `sp_CargarDatosPrueba`, `sp_EjecutarPruebas`, `sp_LimpiarDatosPrueba` |

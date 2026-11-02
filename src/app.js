@@ -9,6 +9,16 @@ const { manejarErrores, noEncontrado } = require('./middleware/errores');
 const app = express();
 
 app.disable('x-powered-by');
+
+// Encabezados básicos de seguridad para la API y el front que se sirve desde aquí.
+app.use((_req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+  });
+  next();
+});
 app.use(cors({ origin: config.corsOrigen === '*' ? true : config.corsOrigen.split(',').map((o) => o.trim()) }));
 app.use(express.json({ limit: '100kb' }));
 
@@ -37,8 +47,9 @@ api.use('/catalogos', require('./rutas/catalogos'));
 api.use(require('./rutas/administracion'));
 app.use('/api', api);
 
-// Front web (../frontend): archivos estáticos en la raíz, mismo origen que la API.
-app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
+// Front web: el build de React (../frontend/dist, se genera con "npm run build"),
+// servido en la raíz y en el mismo origen que la API.
+app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'dist')));
 
 app.use(noEncontrado);
 app.use(manejarErrores);
