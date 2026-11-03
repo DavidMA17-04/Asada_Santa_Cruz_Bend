@@ -111,10 +111,20 @@ router.post('/mantenimientos/realizados', ruta(EJECUTAR, (req, ctx) =>
   }, { id_mantenimiento: sql.Int }, { antes: EMPLEADO_PROPIO }), { estado: 201 }));
 
 // PATCH /mantenimientos/:id/estado  CU-5.7  { nuevo_estado: Programado|En proceso|Finalizado|Cancelado, anotacion? }
-router.patch('/mantenimientos/:id/estado', ruta(EJECUTAR, (req, ctx) =>
-  ctx.sp('sp_CambiarEstadoMantenimiento',
-    { id_mantenimiento: id(req.params.id), ...tomar(req.body, ['nuevo_estado', 'anotacion']) },
-    {}, { antes: SOLO_ASIGNADOS })));
+router.patch('/mantenimientos/:id/estado', ruta(EJECUTAR, (req, ctx) => {
+  const datos = tomar(req.body, ['nuevo_estado', 'anotacion']);
+  if (datos.nuevo_estado === 'Finalizado') {
+    return ctx.sp('sp_CerrarMantenimiento', {
+      id_mantenimiento: id(req.params.id),
+      detalle: datos.anotacion || 'Mantenimiento finalizado',
+      fecha_fin: req.body.fecha_fin || null,
+      cerrar_incidencia: req.body.cerrar_incidencia !== undefined ? req.body.cerrar_incidencia : 1,
+    }, {}, { antes: SOLO_ASIGNADOS });
+  }
+  return ctx.sp('sp_CambiarEstadoMantenimiento',
+    { id_mantenimiento: id(req.params.id), ...datos },
+    {}, { antes: SOLO_ASIGNADOS });
+}));
 
 // PATCH /mantenimientos/:id/reasignar  { id_nuevo_empleado, motivo }
 router.patch('/mantenimientos/:id/reasignar', ruta(GESTIONAR, (req, ctx) =>
