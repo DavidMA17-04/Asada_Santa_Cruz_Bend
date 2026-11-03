@@ -82,8 +82,27 @@ router.post('/mora/reactivar', ruta(GESTIONAR, (req, ctx) =>
 
 /* -------------------------- Configuración -------------------------- */
 
+/** Usa la vista si existe; si no, consulta la tabla base (LocalDB incompleto). */
+async function vistaOTabla(ctx, vista, sqlFallback) {
+  try {
+    return await ctx.vista(vista);
+  } catch (err) {
+    if (err.number === 208 || err.state === '42S02') {
+      return ctx.lote(sqlFallback);
+    }
+    throw err;
+  }
+}
+
 // GET /mora/parametros
-router.get('/mora/parametros', ruta(CONSULTAR, (_req, ctx) => ctx.vista('vw_ParametrosMora')));
+router.get('/mora/parametros', ruta(CONSULTAR, (_req, ctx) =>
+  vistaOTabla(
+    ctx,
+    'vw_ParametrosMora',
+    `SELECT nombre, valor, descripcion, fecha_modificacion
+     FROM dbo.Parametro_Mora
+     ORDER BY nombre;`
+  )));
 
 // PUT /mora/parametros/:nombre  { valor }
 router.put('/mora/parametros/:nombre', ruta(GESTIONAR, (req, ctx) =>
@@ -91,7 +110,14 @@ router.put('/mora/parametros/:nombre', ruta(GESTIONAR, (req, ctx) =>
     { nombre: req.params.nombre, ...tomar(req.body, ['valor']) })));
 
 // GET /mora/tramos
-router.get('/mora/tramos', ruta(CONSULTAR, (_req, ctx) => ctx.vista('vw_TramosMora')));
+router.get('/mora/tramos', ruta(CONSULTAR, (_req, ctx) =>
+  vistaOTabla(
+    ctx,
+    'vw_TramosMora',
+    `SELECT id_tramo, dias_desde, dias_hasta, porcentaje, activo
+     FROM dbo.Tramo_Mora
+     ORDER BY dias_desde;`
+  )));
 
 // POST /mora/tramos  { dias_desde, dias_hasta?, porcentaje, activo? }
 router.post('/mora/tramos', ruta(GESTIONAR, (req, ctx) =>
