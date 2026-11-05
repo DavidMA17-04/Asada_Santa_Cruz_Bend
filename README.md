@@ -24,7 +24,9 @@ Los permisos se leen de la base en cada petición, no del token. Si se le quita 
 
 ## Instalación
 
-Requisitos: Node.js 20 o superior, la base instalada con `../sql/ejecutar_todo.sql` y el **ODBC Driver 17 o 18 for SQL Server**, que viene con SSMS.
+**Despliegue portable (recomendado):** scripts versionados en [`deploy/`](deploy/DESPLIEGUE.md) (`INSTALAR.bat`, `actualizar.ps1`, `verificar.ps1`). Requiere carpetas hermanas `backend`, `frontend` y `sql` (repo de scripts).
+
+Requisitos: Node.js 20 o superior, la base instalada con `../sql/sql/ejecutar_todo.sql` y el **ODBC Driver 17 o 18 for SQL Server**, que viene con SSMS.
 
 ```bash
 cd backend
