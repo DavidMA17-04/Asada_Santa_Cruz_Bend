@@ -41,7 +41,19 @@ router.get('/facturas/pendientes', ruta([...CONSULTAR, P.CONSULTAR_PAGOS, P.GEST
 
 // GET /facturas/:id/saldo  Total, pagos, recargos y saldo pendiente de una factura.
 router.get('/facturas/:id/saldo', ruta([...CONSULTAR, P.CONSULTAR_PAGOS, P.GESTIONAR_PAGOS], (req, ctx) =>
-  ctx.lote('SELECT * FROM dbo.vw_SaldoFactura WHERE id_factura = @id_factura;', { id_factura: id(req.params.id) })));
+  ctx.lote(`select
+    dbo.vw_SaldoFactura.id_factura,
+    dbo.vw_SaldoFactura.id_lectura,
+    dbo.vw_SaldoFactura.id_conexion,
+    dbo.vw_SaldoFactura.fecha_emision,
+    dbo.vw_SaldoFactura.fecha_vencimiento,
+    dbo.vw_SaldoFactura.monto_total,
+    dbo.vw_SaldoFactura.recargos,
+    dbo.vw_SaldoFactura.pagado,
+    dbo.vw_SaldoFactura.saldo,
+    dbo.vw_SaldoFactura.estado
+  from dbo.vw_SaldoFactura
+  where dbo.vw_SaldoFactura.id_factura = @id_factura;`, { id_factura: id(req.params.id) })));
 
 // POST /facturas  CU-3.12  { id_lectura, dias_plazo? }
 router.post('/facturas', ruta(GESTIONAR, (req, ctx) =>
