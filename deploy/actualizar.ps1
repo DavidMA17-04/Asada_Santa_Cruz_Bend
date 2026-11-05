@@ -41,8 +41,9 @@ if (-not $db.AsadaDw) {
 }
 
 $core = Test-AsadaCoreSchema -Servidor $Servidor
-if (-not $core.Abonado -or -not $core.PoliticaRespaldo) {
-    Write-AsadaDeployLog 'ERROR: ASADA existe pero no tiene esquema núcleo esperado (Abonado / Politica_Respaldo). Estado desconocido; no se aplican migraciones.' $logPath
+$coreOk = $core.AbonadoFisico -and $core.AbonadoJuridico -and $core.PoliticaRespaldo -and $core.Conexion -and $core.Medidor
+if (-not $coreOk) {
+    Write-AsadaDeployLog 'ERROR: ASADA existe pero no tiene esquema núcleo esperado (Abonado_Fisico, Abonado_Juridico, Conexion, Medidor, Politica_Respaldo). Estado desconocido; no se aplican migraciones.' $logPath
     Write-Host 'Posible instalación parcial o corrupta. Restaure desde respaldo o reinstale en un equipo limpio.' -ForegroundColor Red
     exit 1
 }
@@ -51,6 +52,19 @@ if (-not $WhatIf) {
     Write-AsadaDeployLog 'Diagnóstico previo (verificar_instalacion.sql)...' $logPath
     Invoke-AsadaSql -Servidor $Servidor -InputFile $config.ScriptVerificar -WorkingDirectory $paths.SqlDir |
         Tee-Object -FilePath $logPath -Append | Out-Null
+}
+
+$rbState = Get-AsadaRespaldosMultibaseMigrationState -Servidor $Servidor
+Write-AsadaDeployLog ("Estado respaldos_multibase: $($rbState.Status) ($($rbState.TrueCount)/5)") $logPath
+if ($rbState.Status -eq 'Partial') {
+    Write-AsadaDeployLog 'ERROR: Migración respaldos_multibase parcialmente aplicada. Revise el diagnóstico antes de continuar.' $logPath
+    Write-Host 'Estado parcial en migración 22 (marcadores incompletos). No se aplican migraciones automáticamente.' -ForegroundColor Red
+    exit 1
+}
+if ($rbState.Status -eq 'Unknown') {
+    Write-AsadaDeployLog "ERROR: No se pudo determinar el estado de respaldos_multibase. $($rbState.Detail)" $logPath
+    Write-Host 'Estado desconocido de migración 22. No se aplican migraciones automáticamente.' -ForegroundColor Red
+    exit 1
 }
 
 $pending = Get-AsadaPendingMigrations -Servidor $Servidor -Config $config

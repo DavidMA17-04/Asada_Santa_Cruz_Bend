@@ -190,17 +190,81 @@ function Get-AsadaSqlCmdVariables {
 
 function Test-AsadaCoreSchema {
     param([string]$Servidor)
+    $exists = {
+        param([string]$ObjectName)
+        $q = "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N'$ObjectName', N'U') IS NULL THEN 0 ELSE 1 END;"
+        (Invoke-AsadaSqlQuery -Servidor $Servidor -Query $q) -eq '1'
+    }
+    @{
+        AbonadoFisico    = & $exists 'ASADA.dbo.Abonado_Fisico'
+        AbonadoJuridico  = & $exists 'ASADA.dbo.Abonado_Juridico'
+        PoliticaRespaldo = & $exists 'ASADA.dbo.Politica_Respaldo'
+        Conexion         = & $exists 'ASADA.dbo.Conexion'
+        Medidor          = & $exists 'ASADA.dbo.Medidor'
+    }
+}
+
+function Get-AsadaRespaldosMultibaseMigrationState {
+    <#
+      Criterio alineado con 22_migracion_respaldos_dw.sql (metadatos, sin OBJECT_DEFINITION):
+      1) columna Politica_Respaldo.nombre_base
+      2) CHECK CK_PoliticaRespaldo_Base
+      3) política activa/inactiva con nombre_base = ASADA_DW
+      4) procedimiento sp_EjecutarRespaldo
+      5) parámetro @nombre_base en sp_GestionarPoliticaRespaldo (script 12)
+      Applied = 5/5 | Pending = 0/5 | Partial = 1..4/5
+    #>
+    param([string]$Servidor)
     $q = @"
 SET NOCOUNT ON;
-SELECT CASE WHEN OBJECT_ID(N'ASADA.dbo.Abonado', N'U') IS NULL THEN 0 ELSE 1 END;
-SELECT CASE WHEN OBJECT_ID(N'ASADA.dbo.Politica_Respaldo', N'U') IS NULL THEN 0 ELSE 1 END;
+SELECT
+  CASE WHEN COL_LENGTH(N'ASADA.dbo.Politica_Respaldo', N'nombre_base') IS NULL THEN 0 ELSE 1 END,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM ASADA.sys.check_constraints
+    WHERE name = N'CK_PoliticaRespaldo_Base'
+      AND parent_object_id = OBJECT_ID(N'ASADA.dbo.Politica_Respaldo')
+  ) THEN 1 ELSE 0 END,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM ASADA.dbo.Politica_Respaldo WHERE nombre_base = N'ASADA_DW'
+  ) THEN 1 ELSE 0 END,
+  CASE WHEN OBJECT_ID(N'ASADA.dbo.sp_EjecutarRespaldo', N'P') IS NULL THEN 0 ELSE 1 END,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM ASADA.sys.parameters p
+    INNER JOIN ASADA.sys.procedures pr ON p.object_id = pr.object_id
+    WHERE pr.object_id = OBJECT_ID(N'ASADA.dbo.sp_GestionarPoliticaRespaldo')
+      AND p.name = N'@nombre_base'
+  ) THEN 1 ELSE 0 END;
 "@
-    $lines = sqlcmd -S $Servidor -E -C -h -1 -W -Q $q
-    if ($LASTEXITCODE -ne 0) { throw 'No se pudo evaluar el esquema núcleo de ASADA.' }
-    $nums = @($lines | Where-Object { $_ -match '^\d+$' })
+    try {
+        $lines = @((sqlcmd -S $Servidor -E -C -h -1 -W -s'|' -Q $q) | Where-Object { $_ -and $_ -notmatch '^\(' })
+    } catch {
+        return @{ Status = 'Unknown'; TrueCount = -1; Checks = @{}; Detail = $_.Exception.Message }
+    }
+    if ($LASTEXITCODE -ne 0 -or $lines.Count -eq 0) {
+        return @{ Status = 'Unknown'; TrueCount = -1; Checks = @{}; Detail = 'No se pudieron leer marcadores de migración 22.' }
+    }
+    $parts = ($lines[0] -split '\|').ForEach({ $_.Trim() })
+    if ($parts.Count -lt 5) {
+        return @{ Status = 'Unknown'; TrueCount = -1; Checks = @{}; Detail = "Formato inesperado: $($lines[0])" }
+    }
+    $checks = @{
+        ColumnNombreBase   = ($parts[0] -eq '1')
+        CheckConstraint    = ($parts[1] -eq '1')
+        PoliticaAsadaDw    = ($parts[2] -eq '1')
+        SpEjecutarRespaldo = ($parts[3] -eq '1')
+        SpGestionarParam   = ($parts[4] -eq '1')
+    }
+    $trueCount = @($checks.Values | Where-Object { $_ }).Count
+    $status = switch ($trueCount) {
+        5 { 'Applied' }
+        0 { 'Pending' }
+        default { 'Partial' }
+    }
     @{
-        Abonado           = ($nums[0] -eq '1')
-        PoliticaRespaldo  = ($nums[1] -eq '1')
+        Status     = $status
+        TrueCount  = $trueCount
+        Checks     = $checks
+        Detail     = "Marcadores migración 22: $trueCount/5"
     }
 }
 
@@ -212,10 +276,7 @@ function Test-AsadaMigrationApplied {
             return ($c -eq '1')
         }
         'respaldos_multibase' {
-            $col = Invoke-AsadaSqlQuery -Servidor $Servidor -Query "SET NOCOUNT ON; SELECT CASE WHEN COL_LENGTH(N'ASADA.dbo.Politica_Respaldo', N'nombre_base') IS NULL THEN 0 ELSE 1 END;"
-            if ($col -ne '1') { return $false }
-            $sp = Invoke-AsadaSqlQuery -Servidor $Servidor -Query "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID(N'ASADA.dbo.sp_EjecutarRespaldo')) LIKE N'%p.nombre_base%' THEN 1 ELSE 0 END;"
-            return ($sp -eq '1')
+            (Get-AsadaRespaldosMultibaseMigrationState -Servidor $Servidor).Status -eq 'Applied'
         }
         default { throw "Migración desconocida: $($Migration.Id)" }
     }
