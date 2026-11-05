@@ -9,6 +9,25 @@ const router = express.Router();
 const CONSULTAR = [P.CONSULTAR_PAGOS, P.GESTIONAR_PAGOS];
 const GESTIONAR = [P.GESTIONAR_PAGOS];
 
+// Control de concurrencia e idempotencia para evitar pagos duplicados por doble clic
+const pagosEnVuelo = new Map();
+
+function validarIdempotenciaPago(req) {
+  const clave = req.headers['idempotency-key']
+    || [req.body.id_factura, req.body.monto, req.body.id_metodo_pago].join('_');
+  const ahora = Date.now();
+  const previo = pagosEnVuelo.get(clave);
+
+  if (previo && ahora - previo < 3500) {
+    const err = new Error('Operación en proceso: Se detectó una solicitud duplicada para este pago. Por favor espere.');
+    err.estado = 429;
+    throw err;
+  }
+
+  pagosEnVuelo.set(clave, ahora);
+  setTimeout(() => pagosEnVuelo.delete(clave), 10000);
+}
+
 /* ------------------------------ Pagos ----------------------------- */
 
 // GET /pagos?tipo_abonado=&id_abonado=&id_factura=&desde=&hasta=&incluir_anulados=  CU-4.5
@@ -21,9 +40,11 @@ router.get('/pagos/por-metodo', ruta(CONSULTAR, (_req, ctx) => ctx.vista('vw_Pag
 
 // POST /pagos  CU-4.1  { id_factura, id_metodo_pago, monto, fecha_pago? }
 // Pago parcial permitido; si el monto excede el saldo, la base lo rechaza.
-router.post('/pagos', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_RegistrarPago', tomar(req.body, ['id_factura', 'id_metodo_pago', 'monto', 'fecha_pago']),
-    { id_pago: sql.Int }), { estado: 201 }));
+router.post('/pagos', ruta(GESTIONAR, (req, ctx) => {
+  validarIdempotenciaPago(req);
+  return ctx.sp('sp_RegistrarPago', tomar(req.body, ['id_factura', 'id_metodo_pago', 'monto', 'fecha_pago']),
+    { id_pago: sql.Int });
+}, { estado: 201 }));
 
 // POST /pagos/:id/anular  { motivo }
 router.post('/pagos/:id/anular', ruta(GESTIONAR, (req, ctx) =>

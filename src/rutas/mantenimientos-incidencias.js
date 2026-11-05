@@ -6,6 +6,31 @@ const P = require('../permisos');
 
 const router = express.Router();
 
+function validarFechaProgramada(fecha) {
+  if (!fecha) return;
+  let str = typeof fecha === 'string' ? fecha.split('T')[0] : null;
+  const hoy = new Date();
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+  
+  if (str && /^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    if (str < hoyStr) {
+      const err = new Error('No se puede programar un mantenimiento en una fecha anterior a la actual.');
+      err.estado = 400;
+      throw err;
+    }
+    return;
+  }
+  
+  const fechaProg = new Date(fecha);
+  if (isNaN(fechaProg.getTime())) return;
+  const fechaProgStr = `${fechaProg.getFullYear()}-${String(fechaProg.getMonth() + 1).padStart(2, '0')}-${String(fechaProg.getDate()).padStart(2, '0')}`;
+  if (fechaProgStr < hoyStr) {
+    const err = new Error('No se puede programar un mantenimiento en una fecha anterior a la actual.');
+    err.estado = 400;
+    throw err;
+  }
+}
+
 const CONSULTAR = [P.CONSULTAR_MANTENIMIENTO, P.GESTIONAR_MANTENIMIENTO];
 const GESTIONAR = [P.GESTIONAR_MANTENIMIENTO];
 const EJECUTAR = [P.EJECUTAR_MANTENIMIENTO, P.GESTIONAR_MANTENIMIENTO];
@@ -62,16 +87,20 @@ router.get('/incidencias/:id/historial', ruta(CONSULTAR, (req, ctx) =>
   ctx.sp('sp_ConsultarHistorialIncidencia', { id_incidencia: id(req.params.id) })));
 
 // POST /incidencias/:id/mantenimiento  CU-5.6  { id_empleado, id_tipo_trabajo, descripcion?, fecha_inicio? }
-router.post('/incidencias/:id/mantenimiento', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_AsignarMantenimiento',
+router.post('/incidencias/:id/mantenimiento', ruta(GESTIONAR, (req, ctx) => {
+  validarFechaProgramada(req.body.fecha_inicio);
+  return ctx.sp('sp_AsignarMantenimiento',
     { id_incidencia: id(req.params.id), ...tomar(req.body, ['id_empleado', 'id_tipo_trabajo', 'descripcion', 'fecha_inicio']) },
-    { id_mantenimiento: sql.Int }), { estado: 201 }));
+    { id_mantenimiento: sql.Int });
+}, { estado: 201 }));
 
 // POST /incidencias/:id/mantenimiento-automatico  { id_tipo_trabajo, descripcion?, fecha_inicio? }
-router.post('/incidencias/:id/mantenimiento-automatico', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_AsignarMantenimientoAutomatico',
+router.post('/incidencias/:id/mantenimiento-automatico', ruta(GESTIONAR, (req, ctx) => {
+  validarFechaProgramada(req.body.fecha_inicio);
+  return ctx.sp('sp_AsignarMantenimientoAutomatico',
     { id_incidencia: id(req.params.id), ...tomar(req.body, ['id_tipo_trabajo', 'descripcion', 'fecha_inicio']) },
-    { id_empleado_asignado: sql.Int, id_mantenimiento: sql.Int }), { estado: 201 }));
+    { id_empleado_asignado: sql.Int, id_mantenimiento: sql.Int });
+}, { estado: 201 }));
 
 /* ------------------------- Mantenimientos ------------------------- */
 
@@ -91,16 +120,20 @@ router.get('/mantenimientos/resumen-operativo', ruta(CONSULTAR, (req, ctx) =>
   ctx.sp('sp_ResumenOperativoMantenimientos', tomar(req.query, ['desde', 'hasta']))));
 
 // POST /mantenimientos  CU-5.5  { id_empleado, id_tipo_trabajo, id_conexion, descripcion?, id_incidencia?, fecha_inicio? }
-router.post('/mantenimientos', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_ProgramarMantenimiento',
+router.post('/mantenimientos', ruta(GESTIONAR, (req, ctx) => {
+  validarFechaProgramada(req.body.fecha_inicio);
+  return ctx.sp('sp_ProgramarMantenimiento',
     tomar(req.body, ['id_empleado', 'id_tipo_trabajo', 'id_conexion', 'descripcion', 'id_incidencia', 'fecha_inicio']),
-    { id_mantenimiento: sql.Int }), { estado: 201 }));
+    { id_mantenimiento: sql.Int });
+}, { estado: 201 }));
 
 // POST /mantenimientos/preventivo-masivo  { id_tipo_trabajo, id_empleado?, dias_sin_mantenimiento?, descripcion?, fecha_inicio? }
-router.post('/mantenimientos/preventivo-masivo', ruta(GESTIONAR, (req, ctx) =>
-  ctx.sp('sp_ProgramarMantenimientoPreventivoMasivo',
+router.post('/mantenimientos/preventivo-masivo', ruta(GESTIONAR, (req, ctx) => {
+  validarFechaProgramada(req.body.fecha_inicio);
+  return ctx.sp('sp_ProgramarMantenimientoPreventivoMasivo',
     tomar(req.body, ['id_tipo_trabajo', 'id_empleado', 'dias_sin_mantenimiento', 'descripcion', 'fecha_inicio']),
-    { cantidad_programados: sql.Int }), { estado: 201 }));
+    { cantidad_programados: sql.Int });
+}, { estado: 201 }));
 
 // POST /mantenimientos/realizados  Registra un trabajo que ya se hizo (queda finalizado).
 // { id_conexion, id_tipo_trabajo, descripcion, fecha_inicio, fecha_fin?, id_incidencia?, id_empleado? }

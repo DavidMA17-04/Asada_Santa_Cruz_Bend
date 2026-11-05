@@ -12,6 +12,7 @@
    Los nombres de parámetros y objetos se escriben en el texto del lote, por eso
    solo se aceptan identificadores simples; los valores siempre van como parámetros. */
 const { sql, obtenerPool } = require('./conexion');
+const { columnasDeVista } = require('./columnasVistas');
 
 const IDENTIFICADOR = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -103,10 +104,12 @@ class Contexto {
     return this.lote(`${antes}\nEXEC dbo.${nombre} ${argumentos.join(', ')};\n${despues}`, entradas, salidas);
   }
 
-  /** SELECT * de una vista, con un ORDER BY opcional escrito en el código. */
+  /** Consulta una vista con columnas explícitas (ver columnasVistas.js). */
   vista(nombre, orden = '') {
     validarIdentificador(nombre);
-    return this.lote(`SELECT * FROM dbo.${nombre}${orden ? ` ORDER BY ${orden}` : ''};`);
+    const columnas = columnasDeVista(nombre);
+    const ordenSql = orden ? ` ${orden}` : '';
+    return this.lote(`select ${columnas} from dbo.${nombre}${ordenSql};`);
   }
 }
 

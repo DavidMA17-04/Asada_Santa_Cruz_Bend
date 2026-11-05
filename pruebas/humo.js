@@ -102,7 +102,7 @@ async function ejecutar() {
     token: admin,
     cuerpo: {
       tipo_identificacion: 'FISICA', numero_identidad: cedula, nombre: 'María', apellido1: 'Humo',
-      fecha_nacimiento: '1990-05-10', direccion: 'Nicoya, Barrio La Cananga', correo_electronico: `humo${sello}@prueba.asada`,
+      fecha_nacimiento: '1990-05-10', direccion: 'Santa Cruz, Barrio Los Ángeles', correo_electronico: `humo${sello}@prueba.asada`,
     },
   }));
   const idAbonado = nuevo.json.salida?.id_abonado;
@@ -115,7 +115,7 @@ async function ejecutar() {
   await esperarEstado('Modificar abonado', 200, api('PUT', `/abonados/FISICO/${idAbonado}`, { token: admin, cuerpo: { telefono: '2685-0000' } }));
 
   const conexion = await esperarEstado('Registrar conexión', 201, api('POST', '/conexiones', {
-    token: admin, cuerpo: { tipo_abonado: 'FISICO', id_abonado: idAbonado, id_tarifa: idTarifa, ubicacion: 'Nicoya, centro' },
+    token: admin, cuerpo: { tipo_abonado: 'FISICO', id_abonado: idAbonado, id_tarifa: idTarifa, ubicacion: 'Santa Cruz, centro' },
   }));
   const idConexion = conexion.json.salida?.id_conexion;
   const medidor = await esperarEstado('Asignar medidor', 201, api('POST', `/conexiones/${idConexion}/medidor`, {
